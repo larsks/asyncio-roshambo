@@ -35,6 +35,27 @@ class Result(int, enum.Enum):
     WIN = 2
 
 
+class StringWriter:
+    eol = b"\r\n"
+
+    def __init__(self, writer):
+        self.writer = writer
+
+    def write(self, data):
+        self.writer.write(data.encode())
+
+    def writeline(self, data):
+        self.write(data)
+        self.writer.write(self.eol)
+
+    def writelines(self, data):
+        for line in data:
+            self.writeline(line)
+
+    async def drain(self):
+        await self.writer.drain()
+
+
 class Roshambo:
     def __init__(self, rounds=1):
         if rounds % 2 == 0:
@@ -71,24 +92,26 @@ class Roshambo:
         return (theirs, mine, res, self.they_win)
 
 
-async def one_round(game, reader, writer):
+async def one_round(game, reader, _writer):
+    writer = StringWriter(_writer)
     writer.writelines(
         [
-            ("*" * 70).encode(),
-            b"\r\n",
-            f"Round {game.round + 1}".encode(),
-            b"\r\n",
-            ("*" * 70).encode(),
-            b"\r\n",
+            ("*" * 70),
+            "Round {game.round + 1}",
+            ("*" * 70),
         ]
     )
     writer.writelines(
-        [x.encode() + b"\r\n" for x in ["0 - Rock", "1 - Paper", "2 - Scissors"]]
+        [
+            "0 - Rock",
+            "1 - Paper",
+            "2 - Scissors",
+        ]
     )
     await writer.drain()
 
     while True:
-        writer.write(b"Enter a choice [0-2]: ")
+        writer.write("Enter a choice [0-2]: ")
         await writer.drain()
         raw_choice = await reader.readline()
         if raw_choice.decode().strip() == "q":
@@ -99,29 +122,21 @@ async def one_round(game, reader, writer):
             res = game.throw(choice)
             writer.writelines(
                 [
-                    b"You chose: ",
-                    str(res[0]).encode(),
-                    b"\r\n",
-                    b"Computer chose: ",
-                    str(res[1]).encode(),
-                    b"\r\n",
+                    f"You chose: {res[0].name}",
+                    f"Computer chose: {res[1].name}",
                 ]
             )
 
-            if res[2]:
-                writer.write(b"You won this round.\r\n")
+            if res[2] == Result.TIE:
+                writer.writeline("This round is tied.")
+            elif res[2] == Result.WIN:
+                writer.writeline("You won this round.")
             else:
-                writer.write(b"You lost this round.\r\n")
+                writer.writeline("You lost this round.")
             await writer.drain()
             break
         except ValueError as err:
-            writer.writelines(
-                [
-                    b"Invalid choice: ",
-                    str(err).encode(),
-                    b"\r\n",
-                ]
-            )
+            writer.writeline(f"Invalid choice: {err}")
             await writer.drain()
 
 
